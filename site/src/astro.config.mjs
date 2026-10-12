@@ -6,19 +6,19 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
 	integrations: [
 		starlight({
-			title: 'ObservatorGrid.space',
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/withastro/starlight' }],
+			title: 'ObservatoryGrid',
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/cbreeves/observatorygrid' }],
 			sidebar: [
 				{
-					label: 'Guides',
+					label: 'Blog',
 					items: [
 						// Each item here is one entry in the navigation menu.
-						{ label: 'Example Guide', slug: 'guides/example' },
+						{ label: 'Foundation - A Static Astro Site', slug: 'guides/establishing-the-static-foundation' },
 					],
 				},
 				{
-					label: 'Reference',
-					items: [{ autogenerate: { directory: 'reference' } }],
+					label: 'Contact',
+					slug: 'contact',
 				},
 			],
 		}),

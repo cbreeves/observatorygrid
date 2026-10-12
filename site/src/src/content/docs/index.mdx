@@ -1,40 +1,45 @@
+
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
-template: splash # Remove or comment out this line to display the site sidebar on this page.
+title: What is ObservatoryGrid?
+description: Connecting astronomical researchers with amateur astronomers to support scientific observing campaigns.
+template: doc
+tableOfContents: false
 hero:
-  tagline: Congrats on setting up a new Starlight project!
+  title: ObservatoryGrid
+  tagline: Connecting astronomical research with the amateur astronomy community.
   image:
-    file: ../../assets/houston.webp
-  actions:
-    - text: Example Guide
-      link: /guides/example/
-      icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
-      icon: external
-      variant: minimal
+    file: ../../assets/m27.webp
+    alt: Messier 27, the Dumbbell Nebula
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+## What is ObservatoryGrid?
 
-## Next steps
+**ObservatoryGrid is a marketplace designed to connect astronomical researchers with amateur astronomers who have equipment capable of contributing to scientific research.**
 
-<CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
-	</Card>
-	<Card title="Change page layout" icon="document">
-		Delete `template: splash` in `src/content/docs/index.mdx` to display a
-		sidebar on this page.
-	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
-	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
-	</Card>
-</CardGrid>
+Researchers create observing campaigns, each consisting of one or more targets with specific optical and imaging requirements. Amateur astronomers can discover campaigns whose research goals interest them and contribute observational data, including images, calibration frames, guiding logs, and other supporting information.
+
+Observers register their available equipment with ObservatoryGrid, which matches their capabilities to the technical requirements of each campaign. These requirements might include angular resolution, field of view, filter bandpass, limiting magnitude, or other observational constraints.
+
+**The goal is to make amateur observing time scientifically useful**, helping observers identify projects to which they can meaningfully contribute while ensuring researchers receive data that meets their requirements.
+
+Participation does not require a permanent or automated observatory—only suitable equipment and a willingness to contribute.
+
+## Why I'm Building It
+
+Amateur astronomers collectively own an enormous amount of capable imaging equipment, much of which spends its available observing time capturing familiar targets for personal enjoyment. Meanwhile, researchers may need observations that do not require professional observatories but are difficult to obtain because of limited telescope access, observing time, or geographic coverage.
+
+I believe there is an opportunity to connect these two communities in a way that benefits both. Researchers gain access to a geographically distributed pool of observing equipment, while amateur astronomers have an opportunity to contribute to research that interests them, using equipment they already own.
+
+Researchers may not always be optimizing their observing expenditures, particularly when available commercial telescope services offer capabilities beyond what their research actually requires. By matching campaign requirements to the equipment available within the amateur astronomy community, ObservatoryGrid could provide a more economical alternative without compromising the scientific requirements of the observations.
+
+The challenge is making that collaboration practical: matching equipment to research requirements, collecting consistent observational data, and providing researchers with usable results.
+
+## Following the Build
+
+ObservatoryGrid is currently in the early stages of development, and I'll be documenting its design and construction here as the project progresses.
+
+The blog will cover the architecture, technical decisions, implementation details, and experiments involved in building the platform. I intend to discuss not only what works, but also the problems encountered, alternatives considered, and decisions that change along the way.
+
+My background is in software architecture, cloud computing, and application modernization, with astrophotography providing the practical astronomy experience behind the idea. ObservatoryGrid brings those interests together in a project that I hope will become useful to both researchers and amateur observers.
+
+The accompanying blog will serve as a technical record of the project, from its initial design through implementation and, eventually, operation.
