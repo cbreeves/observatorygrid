@@ -1,0 +1,272 @@
+---
+title: Establishing the ObservatoryGrid Foundation
+description: Building the initial ObservatoryGrid AWS foundation with delegated DNS, CloudFront, private S3, ACM, KMS, and Terraform.
+template: doc
+tableOfContents: false
+prev: false
+next: false
+---
+
+
+ObservatoryGrid is being built as an AWS-hosted application, so I wanted to start with an infrastructure foundation that would not have to be dismantled as the project grew. The public site is currently built with Astro and Starlight, but the intent is for that site to evolve alongside the application rather than exist as a separate throwaway front end.
+
+The project is also being built inside my own AWS landing zone rather than in an isolated account. ObservatoryGrid has its own workload account, while some administrative responsibilities remain centralized. I am not going to get deeply into the landing zone or security model here; both deserve their own treatment later. For now, that context explains some of the choices I made around domain ownership and DNS.
+
+## Domain registration and DNS
+
+I registered `observatorygrid.space` in my primary AWS account, alongside all my other domain registrations, centralized and available at a glance, but that raises a question for the app living in the workload account. When you register a domain on AWS, [Route 53](https://docs.aws.amazon.com/route53/) initially creates a hosted zone in the same account as part of the registration process. In order to separate domain ownership and operations functions, you can delegate the entire domain by updating its nameservers to those provided by a hosted zone in another account. This works slightly differently if you're delegating a domain versus a subdomain, but the concept is similar: point the (sub)domain at the DNS servers of another hosted zone.
+
+The Terraform in the workload account simply looks up the public zone that now has authority for the domain:
+
+```hcl
+locals {
+  domain_name = "observatorygrid.space"
+  domains     = [local.domain_name, "www.${local.domain_name}"]
+}
+
+data "aws_route53_zone" "site" {
+  name         = local.domain_name
+  private_zone = false
+}
+```
+
+That leaves domain registration under centralized control while delegating operational DNS management to the workload account. Touch any corporate workload and you'll likely see the same thing: domain ownership is an administrative concern, while DNS records usually belong with the systems and teams that operate the workload. There is no requirement for those two responsibilities to live in the same AWS account.
+
+Once the delegation was in place, I also added the MX, SPF, and DKIM records required by my email provider so that `observatorygrid.space` could send and receive mail normally.
+
+## Hosting the site
+
+The initial public site is statically generated, so the hosting architecture is deliberately simple:
+
+Browser → Route 53 → [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) → private [S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html) bucket
+
+The Astro build is stored in S3, but the bucket itself is private. S3 is being used as object storage, not as a directly exposed website endpoint, while CloudFront becomes the public entry point. It handles HTTPS, caching, edge delivery, and the routing behavior needed to serve the generated Astro site cleanly.
+
+The bucket starts private and stays that way:
+
+```hcl
+resource "aws_s3_bucket" "site" {
+  bucket = "observatorygrid-site-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "site" {
+  bucket                  = aws_s3_bucket.site.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+```
+
+Access between CloudFront and S3 is handled through CloudFront Origin Access Control. The S3 bucket policy permits the CloudFront distribution to read the objects it needs while leaving the bucket otherwise inaccessible from the public Internet. That distinction was worth noting for me because my default AWS mental model tends to start with, "What IAM role does this service need?" CloudFront-to-S3 access has its own mechanism, and OAC is the appropriate one here.
+
+```hcl
+resource "aws_cloudfront_origin_access_control" "site" {
+  name                              = "observatorygrid-site"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+resource "aws_s3_bucket_policy" "site" {
+  bucket = aws_s3_bucket.site.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "CloudFrontReadOnly"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.site.arn}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.site.arn
+          }
+        }
+      }
+    ]
+  })
+}
+```
+
+There is one additional detail caused by using Astro with an S3 REST origin. Astro generates directory indexes, while the S3 REST endpoint does not automatically translate a request for `/foo/` into `/foo/index.html`. I handle that at the edge with a small CloudFront Function:
+
+```hcl
+# Astro generates directory indexes. S3 REST origins do not resolve them.
+resource "aws_cloudfront_function" "directory_index" {
+  name    = "observatorygrid-directory-index"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code    = file("${path.module}/directory-index.js")
+}
+```
+
+That function is associated with viewer requests in the default cache behavior.
+
+## TLS and routing
+
+Both `observatorygrid.space` and `www.observatorygrid.space` resolve to the same CloudFront distribution. Terraform creates an [ACM](https://docs.aws.amazon.com/acm/latest/userguide/) certificate covering both names and configures CloudFront to use it for HTTPS termination.
+
+```hcl
+resource "aws_acm_certificate" "site" {
+  provider                  = aws.us_east_1
+  domain_name               = local.domain_name
+  subject_alternative_names = ["www.${local.domain_name}"]
+  validation_method         = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+```
+
+Route 53 contains both `A` and `AAAA` aliases for the apex domain and for `www`, all targeting the distribution:
+
+```hcl
+resource "aws_route53_record" "site" {
+  for_each = {
+    for pair in setproduct(local.domains, ["A", "AAAA"]) :
+    "${pair[0]}-${pair[1]}" => pair
+  }
+
+  zone_id = data.aws_route53_zone.site.zone_id
+  name    = each.value[0]
+  type    = each.value[1]
+
+  alias {
+    name                   = aws_cloudfront_distribution.site.domain_name
+    zone_id                = aws_cloudfront_distribution.site.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+```
+
+Of course, looking at the deployed resources in `us-east-2`, where's your certificate? As always, CloudFront distribution certificates must be provisioned in `us-east-1`, so the Terraform explicitly allows for that.
+
+The CloudFront side then references the validated certificate and enforces a current TLS policy:
+
+```hcl
+viewer_certificate {
+  acm_certificate_arn      = aws_acm_certificate_validation.site.certificate_arn
+  ssl_support_method       = "sni-only"
+  minimum_protocol_version = "TLSv1.2_2021"
+}
+```
+
+The result is that neither hostname exposes S3 directly, and both follow the same CloudFront path.
+
+## Encryption
+
+"Encrypt everything, all the time." Here in 2026, that should really go without saying. But there's an important consideration: what keys to use, and how to manage the costs?
+
+Our S3 bucket uses a customer-managed [KMS](https://docs.aws.amazon.com/kms/latest/developerguide/overview.html) key for server-side encryption. Automatic key rotation is enabled, as are S3 Bucket Keys. Permissions are scoped so CloudFront can decrypt the objects it needs to serve.
+
+```hcl
+resource "aws_kms_key" "site" {
+  description             = "Encrypt ObservatoryGrid website objects"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableAccountIAMPermissions"
+        Effect    = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid       = "CloudFrontDecrypt"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "kms:Decrypt"
+        Resource  = "*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.site.arn
+          }
+        }
+      }
+    ]
+  })
+}
+```
+
+The bucket then uses that key by default, with Bucket Keys enabled:
+
+```hcl
+resource "aws_s3_bucket_server_side_encryption_configuration" "site" {
+  bucket = aws_s3_bucket.site.id
+
+  rule {
+    bucket_key_enabled = true
+
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.site.arn
+    }
+  }
+}
+```
+
+I chose a customer-managed key primarily because I want explicit control over the key and its permissions as the system grows, rather than relying on the default S3-managed key.
+
+## CI/CD
+
+All of this infrastructure is defined in Terraform: Route 53 records, ACM, S3, KMS, CloudFront, Origin Access Control, bucket policies, and the related permissions.
+
+The CloudFront distribution itself ties most of those pieces together:
+
+```hcl
+resource "aws_cloudfront_distribution" "site" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  aliases             = local.domains
+  default_root_object = "index.html"
+  price_class         = "PriceClass_100"
+
+  origin {
+    domain_name              = aws_s3_bucket.site.bucket_regional_domain_name
+    origin_id                = "site-s3"
+    origin_access_control_id = aws_cloudfront_origin_access_control.site.id
+  }
+
+  default_cache_behavior {
+    target_origin_id       = "site-s3"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.directory_index.arn
+    }
+  }
+}
+```
+
+For the moment, building the Astro site and uploading it to S3 are still manual steps. I am leaving that intentionally simple while the site structure is changing quickly. A later pass will move build, deployment, and CloudFront invalidation into GitHub Actions so that deployment happens on merge.
+
+## A deliberate omission
+
+I am not putting [AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/) in front of the site yet.
+
+At this stage ObservatoryGrid is a static site whose only interactive component is a third-party contact form. There is very little application attack surface of my own to protect, so adding WAF now would mostly be infrastructure without much immediate benefit. That will change when ObservatoryGrid begins exposing its own application endpoints. At that point WAF will become part of the security architecture rather than something added simply because CloudFront is present.
+
+## Where this leaves things
+
+The result of this first pass is a fairly small public web stack, but one that already fits cleanly into the larger AWS environment around it.
+
+Domain registration remains centralized. DNS is delegated to the ObservatoryGrid account. The site is delivered through CloudFront from a private S3 origin, TLS is handled through ACM, storage is encrypted with KMS, and the infrastructure is defined in Terraform.
+
+That is enough foundation for now. The next step is to start building on top of it rather than continuing to elaborate the platform underneath it. The foundation is solid, and I won't have to rework it as the app develops. I will return later to a discussion of the landing zone, account structure, and security controls when there is enough there to justify treating them as subjects of their own.
