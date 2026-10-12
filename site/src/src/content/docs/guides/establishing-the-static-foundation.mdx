@@ -14,7 +14,7 @@ The project is also being built inside my own AWS landing zone rather than in an
 
 ## Domain registration and DNS
 
-I registered `observatorygrid.space` in my primary AWS account, alongside all my other domain registrations, centralized and available at a glance, but that raises a question for the app living in the workload account. When you register a domain on AWS, [Route 53](https://docs.aws.amazon.com/route53/) initially creates a hosted zone in the same account as part of the registration process. In order to separate domain ownership and operations functions, you can delegate the entire domain by updating its nameservers to those provided by a hosted zone in another account. This works slightly differently if you're delegating a domain versus a subdomain, but the concept is similar: point the (sub)domain at the DNS servers of another hosted zone.
+I registered `observatorygrid.space` in my primary AWS account, alongside all my other domain registrations, centralized and available at a glance, but that raises a question for the app living in the workload account. When you register a domain on AWS, [Route 53](https://docs.aws.amazon.com/route53/) initially creates a hosted zone in the same account as part of the registration process. In order to separate domain ownership from operational responsibility, you can delegate the entire domain by updating its nameservers to those provided by a hosted zone in another account. This works slightly differently if you're delegating a domain versus a subdomain, but the concept is similar: point the (sub)domain at the DNS servers of another hosted zone.
 
 The Terraform in the workload account simply looks up the public zone that now has authority for the domain:
 
@@ -161,7 +161,7 @@ The result is that neither hostname exposes S3 directly, and both follow the sam
 
 "Encrypt everything, all the time." Here in 2026, that should really go without saying. But there's an important consideration: what keys to use, and how to manage the costs?
 
-Our S3 bucket uses a customer-managed [KMS](https://docs.aws.amazon.com/kms/latest/developerguide/overview.html) key for server-side encryption. Automatic key rotation is enabled, as are S3 Bucket Keys. Permissions are scoped so CloudFront can decrypt the objects it needs to serve.
+The S3 bucket uses a customer-managed [KMS](https://docs.aws.amazon.com/kms/latest/developerguide/overview.html) key for server-side encryption. Automatic key rotation is enabled, as are S3 Bucket Keys. Permissions are scoped so CloudFront can decrypt the objects it needs to serve.
 
 ```hcl
 resource "aws_kms_key" "site" {
